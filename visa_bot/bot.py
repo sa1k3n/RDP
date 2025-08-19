@@ -230,11 +230,19 @@ def open_select_and_choose_by_value_id(driver: webdriver.Firefox, select_value_i
         try:
             trigger_el.click()
         except Exception:
+            driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));", trigger_el)
             driver.execute_script("arguments[0].click();", trigger_el)
         time.sleep(0.15)
-        wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]//mat-option//span")), timeout=6)
+        wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]//mat-option//span")), timeout=8)
     except Exception:
-        return False
+        # Try one more time with JS-only
+        try:
+            driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));", trigger_el)
+            driver.execute_script("arguments[0].click();", trigger_el)
+            time.sleep(0.2)
+            wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]//mat-option//span")), timeout=6)
+        except Exception:
+            return False
 
     opt_xpath = (
         f"//div[contains(@class,'cdk-overlay-pane')]//mat-option//span[contains(normalize-space(.), {repr(option_text)}) "
@@ -242,11 +250,18 @@ def open_select_and_choose_by_value_id(driver: webdriver.Firefox, select_value_i
     )
     try:
         el = driver.find_elements(By.XPATH, opt_xpath)
+        if not el:
+            # broaden search to mat-option text nodes
+            opt_xpath2 = (
+                f"//div[contains(@class,'cdk-overlay-pane')]//mat-option//*[contains(normalize-space(.), {repr(option_text)}) or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(option_text.lower())})][1]"
+            )
+            el = driver.find_elements(By.XPATH, opt_xpath2)
         if el:
+            target = el[0]
             try:
-                el[0].click()
+                target.click()
             except Exception:
-                driver.execute_script("arguments[0].click();", el[0])
+                driver.execute_script("arguments[0].click();", target)
             time.sleep(0.05)
             return True
     except Exception:
@@ -657,6 +672,12 @@ def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
         c_ok = open_select_and_choose_by_value_id(driver, "mat-select-value-1", account.center)
         s_ok = open_select_and_choose_by_value_id(driver, "mat-select-value-5", account.service_level)
         v_ok = open_select_and_choose_by_value_id(driver, "mat-select-value-3", account.visa_type)
+        if not c_ok:
+            c_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 1, account.center)
+        if not s_ok:
+            s_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 2, account.service_level)
+        if not v_ok:
+            v_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 3, account.visa_type)
         if c_ok and s_ok and v_ok:
             used_ui_vision = True
     except Exception:
