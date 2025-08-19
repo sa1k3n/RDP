@@ -15,6 +15,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.firefox.service import Service as FirefoxService
 from selenium.webdriver.support.ui import WebDriverWait
 
 
@@ -55,7 +56,7 @@ def read_accounts(file_path: str) -> List[Account]:
     return accounts
 
 
-def build_firefox_options(profile_dir: Optional[str] = None) -> FirefoxOptions:
+def build_firefox_options(profile_dir: Optional[str] = None, firefox_binary: Optional[str] = None) -> FirefoxOptions:
     options = FirefoxOptions()
     options.set_preference("intl.accept_languages", "en-US,en")
     options.set_preference("dom.webdriver.enabled", False)
@@ -64,6 +65,8 @@ def build_firefox_options(profile_dir: Optional[str] = None) -> FirefoxOptions:
         options.set_preference("browser.download.dir", profile_dir)
     # Explicitly use headful mode to allow human inspection
     options.headless = False
+    if firefox_binary:
+        options.binary_location = firefox_binary
     return options
 
 
@@ -198,10 +201,13 @@ def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
     click_check_availability(driver)
 
 
-def run_account_flow(account: Account, idx: int, xpi_path: Optional[str]) -> None:
+def run_account_flow(account: Account, idx: int, xpi_path: Optional[str], firefox_binary: Optional[str], geckodriver_path: Optional[str]) -> None:
     profile_dir = tempfile.mkdtemp(prefix=f"visa_bot_profile_{idx}_")
-    options = build_firefox_options(profile_dir)
-    driver = webdriver.Firefox(options=options)
+    options = build_firefox_options(profile_dir, firefox_binary)
+    service: Optional[FirefoxService] = None
+    if geckodriver_path and os.path.exists(geckodriver_path):
+        service = FirefoxService(executable_path=geckodriver_path)
+    driver = webdriver.Firefox(options=options, service=service)
     try:
         maybe_install_extension(driver, xpi_path)
         perform_login(driver, account)
@@ -223,6 +229,8 @@ def main():
     parser.add_argument("--accounts-file", default="accounts.txt", help="Path to CSV file: email,password,visa_type[,center][,service_level]")
     parser.add_argument("--pwnfox-xpi", default=None, help="Optional path to PwnFox XPI to install in each session")
     parser.add_argument("--max-workers", type=int, default=None, help="Override max workers; defaults to number of accounts")
+    parser.add_argument("--firefox-binary", default=os.environ.get("FIREFOX_BINARY"), help="Path to firefox.exe if not on PATH")
+    parser.add_argument("--geckodriver", default=os.environ.get("GECKODRIVER"), help="Path to geckodriver.exe if Selenium Manager fails")
     args = parser.parse_args()
 
     accounts = read_accounts(args.accounts_file)
@@ -231,13 +239,14 @@ def main():
         sys.exit(1)
 
     max_workers = args.max_workers or len(accounts)
-    print(f"Starting {len(accounts)} accounts with {max_workers} workers...")
+    print(f"Loaded {len(accounts)} account(s). Starting...")
 
     # Run all in parallel
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = []
         for idx, account in enumerate(accounts):
-            futures.append(executor.submit(run_account_flow, account, idx, args.pwnfox_xpi))
+            futures.append(executor.submit(run_account_flow, account, idx, args.pwnfox_xpi, args.firefox_binary, args.geckodriver))
+        print("All workers started. Browsers will remain open for inspection.")
         concurrent.futures.wait(futures)
 
 
