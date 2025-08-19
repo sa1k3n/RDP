@@ -1,0 +1,2 @@
+# email,password,visa_type[,center][,service_level]
+salmazidan1@outlook.com,PasswordHere,Schengen Tourist,Cairo,Standard - EGP 1750
