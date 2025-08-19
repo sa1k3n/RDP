@@ -317,6 +317,39 @@ def fill_selects_by_target_texts_in_container(
     return results
 
 
+def select_combobox_by_index_in_container(driver: webdriver.Firefox, container_xpath: str, index_one_based: int, option_text: str) -> bool:
+    """Open the nth combobox inside a container and select an option by visible text.
+    Returns True if selection succeeded."""
+    try:
+        triggers = driver.find_elements(By.XPATH, f"{container_xpath}//div[@role='combobox']")
+    except Exception:
+        triggers = []
+    if not triggers or index_one_based < 1 or index_one_based > len(triggers):
+        return False
+    trigger = triggers[index_one_based - 1]
+    try:
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trigger)
+        trigger.click()
+        wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]//mat-option//span")), timeout=10)
+        option_xpath = (
+            f"//div[contains(@class,'cdk-overlay-pane')]//mat-option//span[contains(normalize-space(.), {repr(option_text)}) "
+            f"or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(option_text.lower())})][1]"
+        )
+        options = driver.find_elements(By.XPATH, option_xpath)
+        if options:
+            options[0].click()
+            return True
+        from selenium.webdriver.common.keys import Keys as _Keys
+        driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
+    except Exception:
+        try:
+            from selenium.webdriver.common.keys import Keys as _Keys
+            driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
+        except Exception:
+            pass
+    return False
+
+
 def set_destination(driver: webdriver.Firefox, value: str) -> None:
     """Set destination input using multiple fallback strategies."""
     candidates = [
@@ -528,6 +561,16 @@ def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
             targets,
         )
         used_ui_vision = all(results.get(t, False) for t in targets)
+
+    if not used_ui_vision:
+        # Fallback C: center/service/visa by fixed indexes inside the container (1-based: 1,2,3)
+        try:
+            c_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 1, account.center)
+            s_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 2, account.service_level)
+            v_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 3, account.visa_type)
+            used_ui_vision = c_ok and s_ok and v_ok
+        except Exception:
+            used_ui_vision = False
 
     # Date picker: prefer UI.Vision input id if present, then robust fallbacks
     try:
