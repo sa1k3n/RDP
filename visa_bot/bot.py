@@ -115,10 +115,24 @@ def open_appointment_page(driver: webdriver.Firefox) -> None:
     wait_for(driver, EC.presence_of_element_located((By.TAG_NAME, "app-root")))
     # Also wait for the main step container to render
     try:
-        wait_for(driver, EC.presence_of_element_located((By.XPATH, "//*[@id='cdk-step-content-0-0']")), timeout=20)
+        wait_for(driver, EC.presence_of_element_located((By.XPATH, "//*[@id='cdk-step-content-0-0']")), timeout=25)
     except TimeoutException:
         # The page sometimes takes longer; proceed but subsequent waits will handle it
         pass
+
+
+def ensure_step_ready(driver: webdriver.Firefox, min_triggers: int = 3, timeout: int = 25) -> None:
+    """Ensure the appointment step has rendered its combobox triggers."""
+    end_time = time.time() + timeout
+    while time.time() < end_time:
+        try:
+            triggers = driver.find_elements(By.XPATH, "//*[@id='cdk-step-content-0-0']//div[@role='combobox']")
+            if len(triggers) >= min_triggers:
+                return
+        except Exception:
+            pass
+        time.sleep(0.3)
+    # Do not raise; subsequent selectors may still succeed
 
 
 def click_element_when_clickable(driver: webdriver.Firefox, locator: tuple, timeout: int = 30):
@@ -140,9 +154,12 @@ def select_from_select_value(driver: webdriver.Firefox, select_value_id: str, op
     Returns True if a selection was made, else False.
     """
     try:
-        trigger = wait_for(driver, EC.element_to_be_clickable((By.ID, select_value_id)), timeout=10)
+        trigger = wait_for(driver, EC.presence_of_element_located((By.ID, select_value_id)), timeout=8)
         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trigger)
-        trigger.click()
+        try:
+            trigger.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", trigger)
     except Exception:
         return False
 
@@ -153,7 +170,14 @@ def select_from_select_value(driver: webdriver.Firefox, select_value_id: str, op
                 f"//mat-option//span[contains(normalize-space(.), {repr(option_text)}) or "
                 f"contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(option_text.lower())})][1]"
             )
-            click_element_when_clickable(driver, (By.XPATH, opt_xpath), timeout=10)
+            try:
+                click_element_when_clickable(driver, (By.XPATH, opt_xpath), timeout=6)
+            except Exception:
+                el = driver.find_elements(By.XPATH, opt_xpath)
+                if el:
+                    driver.execute_script("arguments[0].click();", el[0])
+                else:
+                    raise
             return True
         except Exception:
             pass
@@ -334,7 +358,10 @@ def select_combobox_by_index_in_container(driver: webdriver.Firefox, container_x
     trigger = triggers[index_one_based - 1]
     try:
         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trigger)
-        trigger.click()
+        try:
+            trigger.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", trigger)
         wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]//mat-option//span")), timeout=10)
         option_xpath = (
             f"//div[contains(@class,'cdk-overlay-pane')]//mat-option//span[contains(normalize-space(.), {repr(option_text)}) "
@@ -342,7 +369,10 @@ def select_combobox_by_index_in_container(driver: webdriver.Firefox, container_x
         )
         options = driver.find_elements(By.XPATH, option_xpath)
         if options:
-            options[0].click()
+            try:
+                options[0].click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", options[0])
             return True
         from selenium.webdriver.common.keys import Keys as _Keys
         driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
@@ -537,6 +567,9 @@ def maybe_click_alert_overlay(driver: webdriver.Firefox) -> None:
 
 
 def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
+    # Ensure the step is rendered
+    ensure_step_ready(driver, min_triggers=3, timeout=25)
+
     # Deterministic fast selection: use indexed comboboxes inside the main container
     used_ui_vision = False
     try:
