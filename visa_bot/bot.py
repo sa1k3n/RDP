@@ -616,6 +616,22 @@ def click_check_availability(driver: webdriver.Firefox) -> None:
                 continue
     except Exception:
         pass
+    # JavaScript fallback using the logic provided
+    try:
+        clicked = driver.execute_script(
+            """
+            const btn =
+              document.querySelector('#btnCheckAvailability') ||
+              document.querySelector('#btnSubmit') ||
+              Array.from(document.querySelectorAll("button,input[type='button'],input[type='submit']")).find(el => /check\s*availability/i.test((el.textContent || el.value || '').trim()));
+            if (btn) { btn.click(); return true; }
+            return false;
+            """
+        )
+        if clicked:
+            return
+    except Exception:
+        pass
     raise NoSuchElementException(f"'Check availability' button not found: {last_err}")
 
 
