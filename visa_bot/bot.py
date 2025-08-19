@@ -177,8 +177,10 @@ def select_mat_option_by_text(driver: webdriver.Firefox, label_text: str, option
             f"{repr(label_text.lower())})]]//div[@role='combobox'])[1]"
         )
         click_element_when_clickable(driver, (By.XPATH, select_trigger_xpath))
+        # Wait for overlay options
+        wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]//mat-option//span")), timeout=15)
         option_xpath = (
-            f"//mat-option//span[contains(normalize-space(.), {repr(normalized_option)}) "
+            f"//div[contains(@class,'cdk-overlay-pane')]//mat-option//span[contains(normalize-space(.), {repr(normalized_option)}) "
             f"or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(normalized_option.lower())})][1]"
         )
         click_element_when_clickable(driver, (By.XPATH, option_xpath))
@@ -193,8 +195,9 @@ def select_mat_option_by_text(driver: webdriver.Firefox, label_text: str, option
             f"{repr(label_text.lower())})]]//div[@role='combobox'])[1]"
         )
         click_element_when_clickable(driver, (By.XPATH, placeholder_trigger_xpath))
+        wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]//mat-option//span")), timeout=15)
         option_xpath = (
-            f"//mat-option//span[contains(normalize-space(.), {repr(normalized_option)}) "
+            f"//div[contains(@class,'cdk-overlay-pane')]//mat-option//span[contains(normalize-space(.), {repr(normalized_option)}) "
             f"or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(normalized_option.lower())})][1]"
         )
         click_element_when_clickable(driver, (By.XPATH, option_xpath))
@@ -203,15 +206,15 @@ def select_mat_option_by_text(driver: webdriver.Firefox, label_text: str, option
         pass
 
     # Strategy C: brute-force all visible comboboxes
-    comboboxes = driver.find_elements(By.XPATH, "//div[@role='combobox']")
+    comboboxes = driver.find_elements(By.XPATH, "//div[@role='combobox'] | //mat-select | //div[contains(@class,'mat-mdc-select-trigger')]")
     for idx, trigger in enumerate(comboboxes):
         try:
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trigger)
             trigger.click()
             # Wait briefly for options to render
-            wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//mat-option//span")), timeout=10)
+            wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]//mat-option//span")), timeout=15)
             option_xpath = (
-                f"//mat-option//span[contains(normalize-space(.), {repr(normalized_option)}) "
+                f"//div[contains(@class,'cdk-overlay-pane')]//mat-option//span[contains(normalize-space(.), {repr(normalized_option)}) "
                 f"or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(normalized_option.lower())})][1]"
             )
             options = driver.find_elements(By.XPATH, option_xpath)
@@ -345,6 +348,7 @@ def set_trip_date_to_last_day_of_month(driver: webdriver.Firefox) -> None:
     # Try by aria-label
     selectors = [
         f"//div[contains(@class,'mat-calendar')]//button[@aria-label={repr(aria_label)}]",
+        f"//div[contains(@class,'cdk-overlay-pane')]//div[contains(@class,'mat-calendar')]//button[@aria-label={repr(aria_label)}]",
         f"//button[@aria-label={repr(int(last_day.strftime('%d')))}]",  # rare fallback
     ]
     for xp in selectors:
@@ -368,6 +372,8 @@ def check_by_label_contains(driver: webdriver.Firefox, label_snippet: str) -> No
         f"(//mat-checkbox//label[contains(., {repr(label_snippet)})])[1]",
         # Arabic fallbacks common on such pages
         f"(//label[contains(., 'الشروط') or contains(., 'الخصوصية')])[1]",
+        # Input element click
+        f"(//mat-checkbox//input[@type='checkbox'])[1]",
     ]
     last_err = None
     for xp in candidates:
@@ -396,6 +402,8 @@ def click_check_availability(driver: webdriver.Firefox) -> None:
         "//button[.//span[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'search')] or contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'search')]",
         "//button[contains(., 'تحقق') or contains(., 'التوفر')]",
         "(//button[contains(@type,'submit')])[1]",
+        # Angular Material raised buttons
+        "//button[contains(@class,'mat-mdc-raised-button') or contains(@class,'mat-mdc-unelevated-button')]",
     ]
     last_err = None
     for xp in candidates:
