@@ -67,24 +67,29 @@ def build_firefox_options(profile_dir: Optional[str] = None, firefox_binary: Opt
     options.headless = False
     if firefox_binary:
         options.binary_location = firefox_binary
+    try:
+        options.set_capability("pageLoadStrategy", "eager")
+    except Exception:
+        pass
     return options
 
 
 def maybe_install_extension(driver: webdriver.Firefox, xpi_path: Optional[str]) -> None:
-    if not xpi_path:
-        return
-    if not os.path.exists(xpi_path):
-        print(f"Extension XPI not found at: {xpi_path}")
-        return
-    try:
-        driver.install_addon(xpi_path, temporary=True)
-        print(f"Installed extension: {xpi_path}")
-    except Exception as exc:
-        print(f"Failed to install extension {xpi_path}: {exc}")
+    # PwnFox installation is now disabled for speed and stability
+    return
 
 
-def wait_for(driver: webdriver.Firefox, condition, timeout: int = 30):
+def wait_for(driver: webdriver.Firefox, condition, timeout: int = 12):
     return WebDriverWait(driver, timeout).until(condition)
+
+
+def wait_overlay_closed(driver: webdriver.Firefox, timeout: int = 5) -> None:
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: len(d.find_elements(By.XPATH, "//div[contains(@class,'cdk-overlay-pane') and not(contains(@style,'display: none'))]")) == 0
+        )
+    except Exception:
+        pass
 
 
 def perform_login(driver: webdriver.Firefox, account: Account) -> None:
@@ -110,7 +115,7 @@ def open_appointment_page(driver: webdriver.Firefox) -> None:
     wait_for(driver, EC.presence_of_element_located((By.TAG_NAME, "app-root")))
     # Also wait for the main step container to render
     try:
-        wait_for(driver, EC.presence_of_element_located((By.XPATH, "//*[@id='cdk-step-content-0-0']")), timeout=60)
+        wait_for(driver, EC.presence_of_element_located((By.XPATH, "//*[@id='cdk-step-content-0-0']")), timeout=20)
     except TimeoutException:
         # The page sometimes takes longer; proceed but subsequent waits will handle it
         pass
@@ -212,7 +217,7 @@ def select_mat_option_by_text(driver: webdriver.Firefox, label_text: str, option
         pass
 
     # Strategy C: brute-force all visible comboboxes
-    comboboxes = driver.find_elements(By.XPATH, "//div[@role='combobox'] | //mat-select | //div[contains(@class,'mat-mdc-select-trigger')]")
+    comboboxes = driver.find_elements(By.XPATH, "//*[@id='cdk-step-content-0-0']//div[@role='combobox']") or driver.find_elements(By.XPATH, "//div[@role='combobox'] | //mat-select | //div[contains(@class,'mat-mdc-select-trigger')]")
     for idx, trigger in enumerate(comboboxes):
         try:
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trigger)
@@ -341,6 +346,7 @@ def select_combobox_by_index_in_container(driver: webdriver.Firefox, container_x
             return True
         from selenium.webdriver.common.keys import Keys as _Keys
         driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
+        wait_overlay_closed(driver, timeout=3)
     except Exception:
         try:
             from selenium.webdriver.common.keys import Keys as _Keys
@@ -531,12 +537,12 @@ def maybe_click_alert_overlay(driver: webdriver.Firefox) -> None:
 
 
 def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
-    # First try the UI.Vision-provided ids/xpaths for this new UI
+    # Deterministic fast selection: use indexed comboboxes inside the main container
     used_ui_vision = False
     try:
-        c_ok = select_from_select_value(driver, "mat-select-value-1", option_text=account.center, option_id=None)
-        s_ok = select_from_select_value(driver, "mat-select-value-5", option_text=account.service_level, option_id=None)
-        v_ok = select_from_select_value(driver, "mat-select-value-3", option_text=account.visa_type, option_id=None)
+        c_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 1, account.center)
+        s_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 2, account.service_level)
+        v_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 3, account.visa_type)
         if c_ok and s_ok and v_ok:
             used_ui_vision = True
     except Exception:
@@ -574,7 +580,7 @@ def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
 
     # Date picker: prefer UI.Vision input id if present, then robust fallbacks
     try:
-        click_by_id_if_present(driver, "pickerInput", timeout=3)
+        click_by_id_if_present(driver, "pickerInput", timeout=2)
     except Exception:
         pass
     set_trip_date_to_last_day_of_month(driver)
