@@ -233,6 +233,51 @@ def select_mat_option_by_text(driver: webdriver.Firefox, label_text: str, option
     raise NoSuchElementException(f"Could not select option '{normalized_option}' for '{label_text}'.")
 
 
+def fill_selects_by_target_texts_in_container(
+    driver: webdriver.Firefox,
+    container_xpath: str,
+    targets: list,
+) -> dict:
+    """Iterate all combobox triggers inside a container and try to select options
+    by matching any of the provided target strings. Returns a dict mapping target->bool (selected or not).
+    """
+    results = {t: False for t in targets}
+    try:
+        triggers = driver.find_elements(By.XPATH, f"{container_xpath}//div[@role='combobox']")
+    except Exception:
+        triggers = []
+    for trigger in triggers:
+        try:
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trigger)
+            trigger.click()
+            wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//mat-option//span")), timeout=10)
+            for target in list(results.keys()):
+                if results[target]:
+                    continue
+                opt_xpath = (
+                    f"//mat-option//span[contains(normalize-space(.), {repr(target)}) or "
+                    f"contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(target.lower())})][1]"
+                )
+                found = driver.find_elements(By.XPATH, opt_xpath)
+                if found:
+                    found[0].click()
+                    results[target] = True
+                    break
+            else:
+                # No target matched in this panel; close it
+                from selenium.webdriver.common.keys import Keys as _Keys
+                driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
+                time.sleep(0.1)
+        except Exception:
+            try:
+                from selenium.webdriver.common.keys import Keys as _Keys
+                driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
+            except Exception:
+                pass
+            continue
+    return results
+
+
 def set_destination(driver: webdriver.Firefox, value: str) -> None:
     """Set destination input using multiple fallback strategies."""
     candidates = [
@@ -379,8 +424,8 @@ def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
     # First try the UI.Vision-provided ids/xpaths for this new UI
     used_ui_vision = False
     try:
-        c_ok = select_from_select_value(driver, "mat-select-value-1", option_text=account.center, option_id="mat-option-0")
-        s_ok = select_from_select_value(driver, "mat-select-value-5", option_text=account.service_level, option_id="mat-option-2")
+        c_ok = select_from_select_value(driver, "mat-select-value-1", option_text=account.center, option_id=None)
+        s_ok = select_from_select_value(driver, "mat-select-value-5", option_text=account.service_level, option_id=None)
         v_ok = select_from_select_value(driver, "mat-select-value-3", option_text=account.visa_type, option_id=None)
         if c_ok and s_ok and v_ok:
             used_ui_vision = True
@@ -388,10 +433,24 @@ def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
         used_ui_vision = False
 
     if not used_ui_vision:
-        # Fallback: robust selection using labels
-        select_mat_option_by_text(driver, "select the center", account.center)
-        select_mat_option_by_text(driver, "select service level", account.service_level)
-        select_mat_option_by_text(driver, "select the visa type", account.visa_type)
+        # Fallback A: select by visible labels
+        try:
+            select_mat_option_by_text(driver, "select the center", account.center)
+            select_mat_option_by_text(driver, "select service level", account.service_level)
+            select_mat_option_by_text(driver, "select the visa type", account.visa_type)
+            used_ui_vision = True
+        except Exception:
+            used_ui_vision = False
+
+    if not used_ui_vision:
+        # Fallback B: brute force all selects within main step container
+        targets = [account.center, account.service_level, account.visa_type]
+        results = fill_selects_by_target_texts_in_container(
+            driver,
+            "//*[@id='cdk-step-content-0-0']",
+            targets,
+        )
+        used_ui_vision = all(results.get(t, False) for t in targets)
 
     # Date picker: prefer UI.Vision input id if present, then robust fallbacks
     try:
