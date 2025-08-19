@@ -116,6 +116,54 @@ def click_element_when_clickable(driver: webdriver.Firefox, locator: tuple, time
     return element
 
 
+def click_by_id_if_present(driver: webdriver.Firefox, element_id: str, timeout: int = 10) -> bool:
+    try:
+        click_element_when_clickable(driver, (By.ID, element_id), timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
+def select_from_select_value(driver: webdriver.Firefox, select_value_id: str, option_text: Optional[str] = None, option_id: Optional[str] = None) -> bool:
+    """Open a mat-select by its value container id (e.g., 'mat-select-value-1') and select either by text or by option id.
+    Returns True if a selection was made, else False.
+    """
+    try:
+        trigger = wait_for(driver, EC.element_to_be_clickable((By.ID, select_value_id)), timeout=10)
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trigger)
+        trigger.click()
+    except Exception:
+        return False
+
+    # Prefer selection by text if provided
+    if option_text:
+        try:
+            opt_xpath = (
+                f"//mat-option//span[contains(normalize-space(.), {repr(option_text)}) or "
+                f"contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(option_text.lower())})][1]"
+            )
+            click_element_when_clickable(driver, (By.XPATH, opt_xpath), timeout=10)
+            return True
+        except Exception:
+            pass
+
+    # Fallback to explicit option id
+    if option_id:
+        try:
+            click_element_when_clickable(driver, (By.ID, option_id), timeout=10)
+            return True
+        except Exception:
+            pass
+
+    # Close the panel if still open
+    try:
+        from selenium.webdriver.common.keys import Keys as _Keys
+        driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
+    except Exception:
+        pass
+    return False
+
+
 def select_mat_option_by_text(driver: webdriver.Firefox, label_text: str, option_text: str) -> None:
     """Try to open a mat-select by its label and choose an option. If that fails,
     iterate over all combobox triggers and select the first one that contains the desired option.
@@ -188,6 +236,7 @@ def select_mat_option_by_text(driver: webdriver.Firefox, label_text: str, option
 def set_destination(driver: webdriver.Firefox, value: str) -> None:
     """Set destination input using multiple fallback strategies."""
     candidates = [
+        "//*[@id='cdk-step-content-0-0']/app-memebers-number/form/div/div[6]/div/input",
         "(//mat-form-field[.//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'destination')]]//input)[1]",
         "(//mat-form-field[.//*[@placeholder and contains(translate(@placeholder, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'destination')]]//input)[1]",
         "(//input[@placeholder and contains(translate(@placeholder, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'destination')])[1]",
@@ -226,6 +275,7 @@ def set_trip_date_to_last_day_of_month(driver: webdriver.Firefox) -> None:
             continue
     if not opened:
         input_candidates = [
+            "//*[@id='pickerInput']",
             "(//mat-form-field[.//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'trip date')]]//input)[1]",
             "(//input[@data-mat-calendar])",
             "(//input[@type='date'])[1]",
@@ -285,9 +335,17 @@ def check_by_label_contains(driver: webdriver.Firefox, label_snippet: str) -> No
     raise NoSuchElementException(f"Checkbox with label containing '{label_snippet}' not found: {last_err}")
 
 
+def check_checkbox_by_id_or_label(driver: webdriver.Firefox, checkbox_id: str, label_fallback: str) -> None:
+    """Try to click checkbox input by id, otherwise fall back to label search."""
+    if click_by_id_if_present(driver, checkbox_id, timeout=5):
+        return
+    check_by_label_contains(driver, label_fallback)
+
+
 def click_check_availability(driver: webdriver.Firefox) -> None:
     """Click the submit button using robust text matches."""
     candidates = [
+        "//*[@id='cdk-step-content-0-0']/app-memebers-number/div[2]/div/button",
         "//button[.//span[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'check availability')] or contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'check availability')]",
         "//button[.//span[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'availability')] or contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'availability')]",
         "//button[.//span[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'search')] or contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'search')]",
@@ -305,16 +363,55 @@ def click_check_availability(driver: webdriver.Firefox) -> None:
     raise NoSuchElementException(f"'Check availability' button not found: {last_err}")
 
 
+def maybe_click_alert_overlay(driver: webdriver.Firefox) -> None:
+    """If an alert card overlay appears, click it to dismiss or focus as per UI.Vision flow."""
+    try:
+        click_element_when_clickable(
+            driver,
+            (By.XPATH, "//*[@id='cdk-step-content-0-0']/app-memebers-number/app-visasys-allert-card/div"),
+            timeout=3,
+        )
+    except Exception:
+        pass
+
+
 def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
-    # Robust selection using label or brute-force where needed
-    select_mat_option_by_text(driver, "select the center", account.center)
-    select_mat_option_by_text(driver, "select service level", account.service_level)
-    select_mat_option_by_text(driver, "select the visa type", account.visa_type)
+    # First try the UI.Vision-provided ids/xpaths for this new UI
+    used_ui_vision = False
+    try:
+        c_ok = select_from_select_value(driver, "mat-select-value-1", option_text=account.center, option_id="mat-option-0")
+        s_ok = select_from_select_value(driver, "mat-select-value-5", option_text=account.service_level, option_id="mat-option-2")
+        v_ok = select_from_select_value(driver, "mat-select-value-3", option_text=account.visa_type, option_id=None)
+        if c_ok and s_ok and v_ok:
+            used_ui_vision = True
+    except Exception:
+        used_ui_vision = False
+
+    if not used_ui_vision:
+        # Fallback: robust selection using labels
+        select_mat_option_by_text(driver, "select the center", account.center)
+        select_mat_option_by_text(driver, "select service level", account.service_level)
+        select_mat_option_by_text(driver, "select the visa type", account.visa_type)
+
+    # Date picker: prefer UI.Vision input id if present, then robust fallbacks
+    try:
+        click_by_id_if_present(driver, "pickerInput", timeout=3)
+    except Exception:
+        pass
     set_trip_date_to_last_day_of_month(driver)
+
+    # Destination: prefer the provided deep xpath, otherwise robust fallbacks
     set_destination(driver, "Italy")
-    check_by_label_contains(driver, "terms")
-    check_by_label_contains(driver, "privacy")
+
+    # Checkboxes: try by id first as per provided flow, then fallback to label search
+    check_checkbox_by_id_or_label(driver, "mat-mdc-checkbox-1-input", "terms")
+    check_checkbox_by_id_or_label(driver, "mat-mdc-checkbox-2-input", "privacy")
+
+    # Click the main action button
     click_check_availability(driver)
+
+    # Optionally click alert card if present
+    maybe_click_alert_overlay(driver)
 
 
 def run_account_flow(account: Account, idx: int, xpi_path: Optional[str], firefox_binary: Optional[str], geckodriver_path: Optional[str]) -> None:
