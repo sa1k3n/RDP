@@ -199,6 +199,69 @@ def select_from_select_value(driver: webdriver.Firefox, select_value_id: str, op
     return False
 
 
+def open_select_and_choose_by_value_id(driver: webdriver.Firefox, select_value_id: str, option_text: str) -> bool:
+    """Open mat-select using the exact select-value id, click via JS if needed, then choose option by text."""
+    try:
+        value_el = wait_for(driver, EC.presence_of_element_located((By.ID, select_value_id)), timeout=8)
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", value_el)
+    except Exception:
+        return False
+
+    trigger_candidates = [
+        f"//*[@id={repr(select_value_id)}]/ancestor::mat-select//div[@role='combobox']",
+        f"//*[@id={repr(select_value_id)}]/ancestor::*[self::mat-select or contains(@class,'mat-mdc-select')][1]//div[@role='combobox']",
+        f"//*[@id={repr(select_value_id)}]/ancestor::*[contains(@class,'mat-mdc-form-field') or contains(@class,'mat-form-field')]//div[@role='combobox']",
+        f"//*[@id={repr(select_value_id)}]/parent::div[contains(@class,'mat-mdc-select-trigger')]",
+        f"//*[@id={repr(select_value_id)}]",
+    ]
+    trigger_el = None
+    for xp in trigger_candidates:
+        try:
+            els = driver.find_elements(By.XPATH, xp)
+            if els:
+                trigger_el = els[0]
+                break
+        except Exception:
+            continue
+    if trigger_el is None:
+        return False
+
+    try:
+        try:
+            trigger_el.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", trigger_el)
+        time.sleep(0.15)
+        wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]//mat-option//span")), timeout=6)
+    except Exception:
+        return False
+
+    opt_xpath = (
+        f"//div[contains(@class,'cdk-overlay-pane')]//mat-option//span[contains(normalize-space(.), {repr(option_text)}) "
+        f"or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(option_text.lower())})][1]"
+    )
+    try:
+        el = driver.find_elements(By.XPATH, opt_xpath)
+        if el:
+            try:
+                el[0].click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", el[0])
+            time.sleep(0.05)
+            return True
+    except Exception:
+        pass
+
+    # Close overlay if not selected
+    try:
+        from selenium.webdriver.common.keys import Keys as _Keys
+        driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
+        wait_overlay_closed(driver, timeout=3)
+    except Exception:
+        pass
+    return False
+
+
 def select_mat_option_by_text(driver: webdriver.Firefox, label_text: str, option_text: str) -> None:
     """Try to open a mat-select by its label and choose an option. If that fails,
     iterate over all combobox triggers and select the first one that contains the desired option.
@@ -575,9 +638,9 @@ def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
     # Fast path: use exact mat-select value IDs provided by page
     used_ui_vision = False
     try:
-        c_ok = select_from_select_value(driver, "mat-select-value-1", option_text=account.center, option_id=None)
-        s_ok = select_from_select_value(driver, "mat-select-value-5", option_text=account.service_level, option_id=None)
-        v_ok = select_from_select_value(driver, "mat-select-value-3", option_text=account.visa_type, option_id=None)
+        c_ok = open_select_and_choose_by_value_id(driver, "mat-select-value-1", account.center)
+        s_ok = open_select_and_choose_by_value_id(driver, "mat-select-value-5", account.service_level)
+        v_ok = open_select_and_choose_by_value_id(driver, "mat-select-value-3", account.visa_type)
         if c_ok and s_ok and v_ok:
             used_ui_vision = True
     except Exception:
