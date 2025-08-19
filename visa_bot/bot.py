@@ -131,7 +131,7 @@ def ensure_step_ready(driver: webdriver.Firefox, min_triggers: int = 3, timeout:
                 return
         except Exception:
             pass
-        time.sleep(0.3)
+        WebDriverWait(driver, 0.5).until(lambda d: True)
     # Do not raise; subsequent selectors may still succeed
 
 
@@ -232,14 +232,15 @@ def open_select_and_choose_by_value_id(driver: webdriver.Firefox, select_value_i
         except Exception:
             driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));", trigger_el)
             driver.execute_script("arguments[0].click();", trigger_el)
-        time.sleep(0.15)
+        # minimal wait via explicit condition
+        wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]")), timeout=2)
         wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]//mat-option//span")), timeout=8)
     except Exception:
         # Try one more time with JS-only
         try:
             driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));", trigger_el)
             driver.execute_script("arguments[0].click();", trigger_el)
-            time.sleep(0.2)
+            wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]")), timeout=2)
             wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]//mat-option//span")), timeout=6)
         except Exception:
             return False
@@ -262,7 +263,7 @@ def open_select_and_choose_by_value_id(driver: webdriver.Firefox, select_value_i
                 target.click()
             except Exception:
                 driver.execute_script("arguments[0].click();", target)
-            time.sleep(0.05)
+            # no explicit delay
             return True
     except Exception:
         pass
@@ -337,7 +338,7 @@ def select_mat_option_by_text(driver: webdriver.Firefox, label_text: str, option
             # Close panel if not matched
             from selenium.webdriver.common.keys import Keys as _Keys
             driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
-            time.sleep(0.2)
+            wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]")), timeout=2)
         except Exception:
             # Try next trigger
             try:
@@ -413,7 +414,7 @@ def fill_selects_by_target_texts_in_container(
                 # No target matched in this panel; close it
                 from selenium.webdriver.common.keys import Keys as _Keys
                 driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
-                time.sleep(0.1)
+                WebDriverWait(driver, 0.2).until(lambda d: True)
         except Exception:
             try:
                 from selenium.webdriver.common.keys import Keys as _Keys
@@ -761,7 +762,7 @@ def run_account_flow(account: Account, idx: int, xpi_path: Optional[str], firefo
         print(f"[{account.email}] Error: {exc}")
     finally:
         # Keep the browser open for inspection for a short time
-        time.sleep(2)
+        # no final delay
         # Do not quit immediately to allow the site to respond; comment next line if you want to keep windows open
         # driver.quit()
         pass
