@@ -1,0 +1,14 @@
+{
+  "login_url": "https://egyiam.almaviva-visa.it/realms/oauth2-visaSystem-realm-pkce/protocol/openid-connect/auth?response_type=code&client_id=aa-visasys-public&state=R0llRzNmYTI5T09yQzdLMExkSWJ3MjBBUFBJeTVHY09NZDAyZzJ5bFd5OUpf&redirect_uri=https%3A%2F%2Fegy.almaviva-visa.it%2F&scope=openid%20profile%20email&code_challenge=kuI0awA4RpteV7Wc8ppV8h_NWUl8_daKHoOQiHy_HCg&code_challenge_method=S256&nonce=R0llRzNmYTI5T09yQzdLMExkSWJ3MjBBUFBJeTVHY09NZDAyZzJ5bFd5OUpf",
+  "appointment_url": "https://egy.almaviva-visa.it/appointment",
+  "center_value": "Cairo",
+  "service_level_value": "Standard - EGP 1750",
+  "destination_value": "Italy",
+  "pwnfox_xpi_path": null,
+  "firefox_binary_path": null,
+  "headless": false,
+  "implicit_wait_seconds": 5,
+  "page_load_timeout_seconds": 90,
+  "selector_wait_seconds": 30,
+  "max_workers": null
+}
