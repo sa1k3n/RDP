@@ -1,0 +1,2 @@
+# email,password[,visa_type]
+salmazidan1@outlook.com,YourPasswordHere,Schengen Tourist
