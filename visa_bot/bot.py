@@ -389,6 +389,7 @@ def select_combobox_by_index_in_container(driver: webdriver.Firefox, container_x
 def set_destination(driver: webdriver.Firefox, value: str) -> None:
     """Set destination input using multiple fallback strategies."""
     candidates = [
+        "//input[@formcontrolname='tripDestination']",
         "//*[@id='cdk-step-content-0-0']/app-memebers-number/form/div/div[6]/div/input",
         "(//mat-form-field[.//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'destination')]]//input)[1]",
         "(//mat-form-field[.//*[@placeholder and contains(translate(@placeholder, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'destination')]]//input)[1]",
@@ -511,7 +512,7 @@ def check_by_label_contains(driver: webdriver.Firefox, label_snippet: str) -> No
 
 def check_checkbox_by_id_or_label(driver: webdriver.Firefox, checkbox_id: str, label_fallback: str) -> None:
     """Try to click checkbox input by id, otherwise fall back to label search."""
-    if click_by_id_if_present(driver, checkbox_id, timeout=5):
+    if click_by_id_if_present(driver, checkbox_id, timeout=4):
         return
     check_by_label_contains(driver, label_fallback)
 
@@ -519,6 +520,7 @@ def check_checkbox_by_id_or_label(driver: webdriver.Firefox, checkbox_id: str, l
 def click_check_availability(driver: webdriver.Firefox) -> None:
     """Click the submit button using robust text matches."""
     candidates = [
+        "//button[contains(@class,'visasys-button')]",
         "//*[@id='cdk-step-content-0-0']/app-memebers-number/div[2]/div/button",
         "//button[.//span[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'check availability')] or contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'check availability')]",
         "//button[.//span[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'availability')] or contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'availability')]",
@@ -570,16 +572,26 @@ def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
     # Ensure the step is rendered
     ensure_step_ready(driver, min_triggers=3, timeout=25)
 
-    # Deterministic fast selection: use indexed comboboxes inside the main container
+    # Fast path: use exact mat-select value IDs provided by page
     used_ui_vision = False
     try:
-        c_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 1, account.center)
-        s_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 2, account.service_level)
-        v_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 3, account.visa_type)
+        c_ok = select_from_select_value(driver, "mat-select-value-1", option_text=account.center, option_id=None)
+        s_ok = select_from_select_value(driver, "mat-select-value-5", option_text=account.service_level, option_id=None)
+        v_ok = select_from_select_value(driver, "mat-select-value-3", option_text=account.visa_type, option_id=None)
         if c_ok and s_ok and v_ok:
             used_ui_vision = True
     except Exception:
         used_ui_vision = False
+
+    if not used_ui_vision:
+        # Deterministic indexed fallback
+        try:
+            c_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 1, account.center)
+            s_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 2, account.service_level)
+            v_ok = select_combobox_by_index_in_container(driver, "//*[@id='cdk-step-content-0-0']", 3, account.visa_type)
+            used_ui_vision = c_ok and s_ok and v_ok
+        except Exception:
+            used_ui_vision = False
 
     if not used_ui_vision:
         # Fallback A: select by visible labels
@@ -622,8 +634,8 @@ def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
     set_destination(driver, "Italy")
 
     # Checkboxes: try by id first as per provided flow, then fallback to label search
-    check_checkbox_by_id_or_label(driver, "mat-mdc-checkbox-1-input", "terms")
-    check_checkbox_by_id_or_label(driver, "mat-mdc-checkbox-2-input", "privacy")
+    check_checkbox_by_id_or_label(driver, "mat-mdc-checkbox-3-input", "terms")
+    check_checkbox_by_id_or_label(driver, "mat-mdc-checkbox-4-input", "privacy")
 
     # Click the main action button
     click_check_availability(driver)
