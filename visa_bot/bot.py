@@ -117,83 +117,199 @@ def click_element_when_clickable(driver: webdriver.Firefox, locator: tuple, time
 
 
 def select_mat_option_by_text(driver: webdriver.Firefox, label_text: str, option_text: str) -> None:
-    # Open mat-select by its label
-    select_trigger_xpath = (
-        f"(//mat-form-field[.//*[normalize-space(text())='{label_text}']]//div[@role='combobox'])[1]"
-    )
-    click_element_when_clickable(driver, (By.XPATH, select_trigger_xpath))
+    """Try to open a mat-select by its label and choose an option. If that fails,
+    iterate over all combobox triggers and select the first one that contains the desired option.
+    """
+    normalized_option = option_text.strip()
 
-    option_xpath = (
-        f"//mat-option//span[contains(normalize-space(.), "
-        f"'{option_text}') or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), "
-        f"'{option_text.lower()}')][1]"
-    )
-    click_element_when_clickable(driver, (By.XPATH, option_xpath))
+    # Strategy A: by explicit label text
+    try:
+        select_trigger_xpath = (
+            f"(//mat-form-field[.//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), "
+            f"{repr(label_text.lower())})]]//div[@role='combobox'])[1]"
+        )
+        click_element_when_clickable(driver, (By.XPATH, select_trigger_xpath))
+        option_xpath = (
+            f"//mat-option//span[contains(normalize-space(.), {repr(normalized_option)}) "
+            f"or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(normalized_option.lower())})][1]"
+        )
+        click_element_when_clickable(driver, (By.XPATH, option_xpath))
+        return
+    except Exception:
+        pass
+
+    # Strategy B: by placeholder attribute on mat-select
+    try:
+        placeholder_trigger_xpath = (
+            f"(//mat-form-field[.//*[@placeholder and contains(translate(@placeholder, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), "
+            f"{repr(label_text.lower())})]]//div[@role='combobox'])[1]"
+        )
+        click_element_when_clickable(driver, (By.XPATH, placeholder_trigger_xpath))
+        option_xpath = (
+            f"//mat-option//span[contains(normalize-space(.), {repr(normalized_option)}) "
+            f"or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(normalized_option.lower())})][1]"
+        )
+        click_element_when_clickable(driver, (By.XPATH, option_xpath))
+        return
+    except Exception:
+        pass
+
+    # Strategy C: brute-force all visible comboboxes
+    comboboxes = driver.find_elements(By.XPATH, "//div[@role='combobox']")
+    for idx, trigger in enumerate(comboboxes):
+        try:
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trigger)
+            trigger.click()
+            # Wait briefly for options to render
+            wait_for(driver, EC.presence_of_all_elements_located((By.XPATH, "//mat-option//span")), timeout=10)
+            option_xpath = (
+                f"//mat-option//span[contains(normalize-space(.), {repr(normalized_option)}) "
+                f"or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(normalized_option.lower())})][1]"
+            )
+            options = driver.find_elements(By.XPATH, option_xpath)
+            if options:
+                options[0].click()
+                return
+            # Close panel if not matched
+            from selenium.webdriver.common.keys import Keys as _Keys
+            driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
+            time.sleep(0.2)
+        except Exception:
+            # Try next trigger
+            try:
+                from selenium.webdriver.common.keys import Keys as _Keys
+                driver.switch_to.active_element.send_keys(_Keys.ESCAPE)
+            except Exception:
+                pass
+            continue
+    raise NoSuchElementException(f"Could not select option '{normalized_option}' for '{label_text}'.")
 
 
 def set_destination(driver: webdriver.Firefox, value: str) -> None:
-    input_xpath = "(//mat-form-field[.//*[contains(normalize-space(text()), 'Destination')]]//input)[1]"
-    input_el = wait_for(driver, EC.presence_of_element_located((By.XPATH, input_xpath)))
+    """Set destination input using multiple fallback strategies."""
+    candidates = [
+        "(//mat-form-field[.//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'destination')]]//input)[1]",
+        "(//mat-form-field[.//*[@placeholder and contains(translate(@placeholder, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'destination')]]//input)[1]",
+        "(//input[@placeholder and contains(translate(@placeholder, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'destination')])[1]",
+        "(//input[contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'destination')])[1]",
+        "(//input[@type='text'])[1]",
+    ]
+    input_el = None
+    for xp in candidates:
+        try:
+            input_el = wait_for(driver, EC.presence_of_element_located((By.XPATH, xp)), timeout=10)
+            if input_el:
+                break
+        except Exception:
+            continue
+    if not input_el:
+        raise NoSuchElementException("Destination input not found")
+    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", input_el)
     input_el.click()
-    # Select all and overwrite
     input_el.send_keys(Keys.CONTROL, "a")
     input_el.send_keys(value)
 
 
 def set_trip_date_to_last_day_of_month(driver: webdriver.Firefox) -> None:
-    # Open the datepicker via toggle button near label 'Trip date'
-    toggle_btn_xpath = (
-        "(//mat-form-field[.//*[contains(normalize-space(text()), 'Trip date')]]//mat-datepicker-toggle//button)[1]"
-    )
-    try:
-        click_element_when_clickable(driver, (By.XPATH, toggle_btn_xpath))
-    except TimeoutException:
-        # Fallback: click the input directly (if clicking opens the overlay)
-        input_xpath = "(//mat-form-field[.//*[contains(normalize-space(text()), 'Trip date')]]//input)[1]"
-        click_element_when_clickable(driver, (By.XPATH, input_xpath))
+    """Open a date picker and choose the last day of the current month using robust fallbacks."""
+    opened = False
+    toggle_candidates = [
+        "(//mat-form-field[.//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'trip date')]]//mat-datepicker-toggle//button)[1]",
+        "(//mat-datepicker-toggle//button)[1]",
+    ]
+    for xp in toggle_candidates:
+        try:
+            click_element_when_clickable(driver, (By.XPATH, xp))
+            opened = True
+            break
+        except Exception:
+            continue
+    if not opened:
+        input_candidates = [
+            "(//mat-form-field[.//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'trip date')]]//input)[1]",
+            "(//input[@data-mat-calendar])",
+            "(//input[@type='date'])[1]",
+            "(//input[contains(@class,'mat-datepicker-input')])[1]",
+        ]
+        for xp in input_candidates:
+            try:
+                click_element_when_clickable(driver, (By.XPATH, xp))
+                opened = True
+                break
+            except Exception:
+                continue
+    if not opened:
+        raise NoSuchElementException("Could not open datepicker for Trip date")
 
-    # Compute last day of current month
     now = datetime.now()
     first_next_month = (now.replace(day=1) + timedelta(days=32)).replace(day=1)
     last_day = first_next_month - timedelta(days=1)
+    # Linux strftime without leading zero for day using %-d, Windows workaround already present
     aria_label = last_day.strftime("%-d %B %Y") if os.name != "nt" else last_day.strftime("#d %B %Y").replace("#", str(int(last_day.strftime("%d"))))
 
-    # Click the day cell by aria-label
-    day_btn_xpath = f"//div[contains(@class,'mat-calendar')]//button[@aria-label='{aria_label}']"
-    try:
-        click_element_when_clickable(driver, (By.XPATH, day_btn_xpath))
-    except TimeoutException:
-        # Some environments use non-padded day names differently; try alternative without leading zeros handling
-        alt_label = f"{int(last_day.strftime('%d'))} {last_day.strftime('%B %Y')}"
-        alt_xpath = f"//div[contains(@class,'mat-calendar')]//button[@aria-label='{alt_label}']"
-        click_element_when_clickable(driver, (By.XPATH, alt_xpath))
+    # Try by aria-label
+    selectors = [
+        f"//div[contains(@class,'mat-calendar')]//button[@aria-label={repr(aria_label)}]",
+        f"//button[@aria-label={repr(int(last_day.strftime('%d')))}]",  # rare fallback
+    ]
+    for xp in selectors:
+        try:
+            click_element_when_clickable(driver, (By.XPATH, xp))
+            return
+        except Exception:
+            continue
+    # Final fallback with recomputed label without padding
+    alt_label = f"{int(last_day.strftime('%d'))} {last_day.strftime('%B %Y')}"
+    alt_xpath = f"//div[contains(@class,'mat-calendar')]//button[@aria-label={repr(alt_label)}]"
+    click_element_when_clickable(driver, (By.XPATH, alt_xpath))
 
 
 def check_by_label_contains(driver: webdriver.Firefox, label_snippet: str) -> None:
-    xpath = (
-        f"(//mat-checkbox[.//label[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), "
-        f"'{label_snippet.lower()}')]]//label)[1]"
-    )
-    try:
-        click_element_when_clickable(driver, (By.XPATH, xpath))
-    except TimeoutException:
-        # Fallback generic checkbox search
-        alt_xpath = f"(//label[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{label_snippet.lower()}')])[1]"
-        click_element_when_clickable(driver, (By.XPATH, alt_xpath))
+    """Tick a checkbox by label contents (supports English/Arabic and fallbacks)."""
+    lowered = label_snippet.lower()
+    candidates = [
+        f"(//mat-checkbox[.//label[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(lowered)})]]//label)[1]",
+        f"(//label[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), {repr(lowered)})])[1]",
+        f"(//mat-checkbox//label[contains(., {repr(label_snippet)})])[1]",
+        # Arabic fallbacks common on such pages
+        f"(//label[contains(., 'الشروط') or contains(., 'الخصوصية')])[1]",
+    ]
+    last_err = None
+    for xp in candidates:
+        try:
+            click_element_when_clickable(driver, (By.XPATH, xp))
+            return
+        except Exception as exc:
+            last_err = exc
+            continue
+    raise NoSuchElementException(f"Checkbox with label containing '{label_snippet}' not found: {last_err}")
 
 
 def click_check_availability(driver: webdriver.Firefox) -> None:
-    btn_xpath = (
-        "//button[.//span[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'check availability')] or "
-        "contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'check availability')]"
-    )
-    click_element_when_clickable(driver, (By.XPATH, btn_xpath))
+    """Click the submit button using robust text matches."""
+    candidates = [
+        "//button[.//span[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'check availability')] or contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'check availability')]",
+        "//button[.//span[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'availability')] or contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'availability')]",
+        "//button[.//span[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'search')] or contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'search')]",
+        "//button[contains(., 'تحقق') or contains(., 'التوفر')]",
+        "(//button[contains(@type,'submit')])[1]",
+    ]
+    last_err = None
+    for xp in candidates:
+        try:
+            click_element_when_clickable(driver, (By.XPATH, xp))
+            return
+        except Exception as exc:
+            last_err = exc
+            continue
+    raise NoSuchElementException(f"'Check availability' button not found: {last_err}")
 
 
 def fill_appointment_form(driver: webdriver.Firefox, account: Account) -> None:
-    select_mat_option_by_text(driver, "Select the center", account.center)
-    select_mat_option_by_text(driver, "Select service level", account.service_level)
-    select_mat_option_by_text(driver, "Select the visa type", account.visa_type)
+    # Robust selection using label or brute-force where needed
+    select_mat_option_by_text(driver, "select the center", account.center)
+    select_mat_option_by_text(driver, "select service level", account.service_level)
+    select_mat_option_by_text(driver, "select the visa type", account.visa_type)
     set_trip_date_to_last_day_of_month(driver)
     set_destination(driver, "Italy")
     check_by_label_contains(driver, "terms")
